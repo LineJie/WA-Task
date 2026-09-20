@@ -1,0 +1,19 @@
+{
+  "name": "wa-task-bot",
+  "version": "1.0.0",
+  "description": "Internal WhatsApp bot untuk reminder task per org (Pung Pung / Wonderlab / Food Business)",
+  "type": "module",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.9",
+    "better-sqlite3": "^11.3.0",
+    "dayjs": "^1.11.13",
+    "node-cron": "^3.0.3",
+    "pino": "^9.4.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
