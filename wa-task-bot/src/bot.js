@@ -4,17 +4,27 @@ import qrcode from 'qrcode-terminal';
 import pino from 'pino';
 import dayjs from 'dayjs';
 
-import {
+import db, {
   getOrgByGroup, markDoneByMessageId, findInstanceByMessageId, listAllOrgs,
 } from './db.js';
 import {
   handleTaskCommand, handleListCommand, handleCancelCommand, ensureOrg,
 } from './commands.js';
 import { startScheduler } from './scheduler.js';
+import { initStock, handleStockCommand, startStockDigest } from './stock.js';
 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = baileys;
 
 const orgCache = new Map(); // org_id -> group_jid, buat scheduler
+
+// ── Fitur stok tipis ──────────────────────────────────────
+// Nomor WA orang yang belanja (format 628xxx). Diisi lewat environment variable,
+// bukan ditulis di kode, karena repo ini public:
+//   STOK_PEMBELI=628123456789 npm start
+const BUYER_NUMBER = (process.env.STOK_PEMBELI || '').replace(/\D/g, '');
+initStock(db);
+let currentSock = null; // socket terbaru, dipakai rekap pagi setelah reconnect
+let stockDigestStarted = false;
 
 async function isSenderAdmin(sock, groupJid, senderJid) {
   try {
@@ -34,6 +44,7 @@ async function start() {
     logger: pino({ level: 'silent' }),
     printQRInTerminal: false,
   });
+  currentSock = sock;
 
   sock.ev.on('creds.update', saveCreds);
 
@@ -71,6 +82,25 @@ async function start() {
     if (!text.startsWith('/')) return;
 
     const senderJid = msg.key.participant || msg.participant;
+
+    // /stok boleh dipakai semua member grup (staf lapor stok), jadi diproses
+    // sebelum cek admin. Hanya "/stok beres" yang dibatasi: pembeli atau admin grup.
+    if (/^\/stok(\s|$)/i.test(text)) {
+      const senderNumber = (senderJid || '').split('@')[0].split(':')[0];
+      let canResolve = false;
+      if (/^\/stok\s+beres(\s|$)/i.test(text)) {
+        canResolve = (BUYER_NUMBER !== '' && senderNumber === BUYER_NUMBER)
+          || await isSenderAdmin(sock, remoteJid, senderJid);
+      }
+      const stokReply = handleStockCommand(db, {
+        text, groupId: remoteJid, sender: senderNumber, canResolve,
+      });
+      if (stokReply) {
+        await sock.sendMessage(remoteJid, { text: stokReply }, { quoted: msg });
+      }
+      return;
+    }
+
     const admin = await isSenderAdmin(sock, remoteJid, senderJid);
     if (!admin) {
       await sock.sendMessage(remoteJid, { text: '⛔ Cuma admin grup yang bisa pakai command ini.' }, { quoted: msg });
@@ -102,6 +132,12 @@ async function start() {
         '/task 25/09 14:00 meeting supplier @orang',
         '/list — lihat task aktif',
         '/cancel <id> — batalkan task',
+        '',
+        '*Stok tipis (semua member):*',
+        '/stok tipis telur 2 kg — lapor stok hampir habis',
+        '/stok abis minyak goreng — lapor stok habis',
+        '/stok list — lihat daftar stok tipis',
+        '/stok beres telur — tandai sudah dibeli (pembeli/admin)',
       ].join('\n');
     }
 
@@ -136,6 +172,12 @@ async function start() {
 
   // ── Scheduler ──────────────────────────────────────────────
   startScheduler(sock, (orgId) => orgCache.get(orgId));
+
+  // Rekap stok pagi: didaftarkan sekali saja (start() dipanggil ulang tiap reconnect)
+  if (!stockDigestStarted) {
+    stockDigestStarted = true;
+    startStockDigest({ db, sock: () => currentSock, buyerNumber: BUYER_NUMBER });
+  }
 }
 
 start();

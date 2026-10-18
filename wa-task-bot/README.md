@@ -52,6 +52,24 @@ Org otomatis kedaftar begitu ada admin grup yang pertama kali kirim command (`/t
 - Hari: `hari-ini`, `besok`, `senin`..`minggu`, rentang (`senin-jumat`), list (`senin,rabu,jumat`), `setiap-hari`, atau tanggal spesifik (`25/09`)
 - Yang di-@tag jadi assignee task itu
 
+## 5b. Fitur stok tipis (grup Luckyking)
+
+Staf yang cek stok melapor di grup, yang belanja dapat rekap tiap pagi. **Semua member grup** boleh
+lapor dan lihat daftar (tidak harus admin). Hanya `beres` yang dibatasi ke pembeli atau admin grup.
+
+```
+/stok tipis telur 2 kg        # lapor hampir habis (jumlah opsional)
+/stok abis minyak goreng      # lapor sudah habis
+/stok list                    # lihat daftar yang tipis/abis
+/stok beres telur             # tandai sudah dibeli (bisa juga: /stok beres #3)
+```
+
+- Tiap jam **08:00 WIB** bot kirim rekap ke grup yang punya stok tipis/abis, dan men-tag pembeli.
+- Nomor WA pembeli diisi lewat environment variable `STOK_PEMBELI` (format `628xxx`, tanpa `+`).
+  Jangan ditulis di kode karena repo ini public.
+- Kalau `STOK_PEMBELI` kosong, rekap tetap jalan tapi tanpa tag, dan `beres` hanya bisa oleh admin grup.
+- Daftar stok disimpan terpisah per grup (tabel `stock_items` di `wa-task-bot.db`).
+
 ## 6. Alur reminder
 
 1. Tiap menit bot cek task yang jatuh tempo → post ke grup + tag orangnya
@@ -66,10 +84,16 @@ Pakai [pm2](https://pm2.keymetrics.io/):
 
 ```bash
 npm install -g pm2
-pm2 start src/bot.js --name wa-task-bot --interpreter node --interpreter-args="--experimental-modules"
+STOK_PEMBELI=628xxxxxxxxxx pm2 start src/bot.js --name wa-task-bot
 pm2 save
 pm2 startup   # ikutin instruksi biar auto-start pas server reboot
 ```
+
+Catatan server:
+- Pakai Node 18 atau 20 LTS. Flag `--experimental-modules` tidak diperlukan (project sudah `"type": "module"`).
+- Set zona waktu server ke WIB supaya jam reminder tidak meleset: `sudo timedatectl set-timezone Asia/Jakarta`
+- Kalau `npm install` gagal di `better-sqlite3`: `sudo apt install -y build-essential python3`, lalu install ulang.
+- Mengubah nomor pembeli: `STOK_PEMBELI=628yyy pm2 restart wa-task-bot --update-env`
 
 ## Struktur project
 
@@ -79,6 +103,7 @@ wa-task-bot/
 │   ├── bot.js         # koneksi WA, handle command & reaction
 │   ├── commands.js     # parsing /task /list /cancel
 │   ├── scheduler.js    # cron: generate instance harian, kirim reminder, escalation
+│   ├── stock.js        # fitur stok tipis: /stok, tabel stock_items, rekap pagi
 │   └── db.js           # schema & query sqlite (file: wa-task-bot.db)
 ├── package.json
 └── README.md

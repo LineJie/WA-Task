@@ -1,0 +1,6 @@
+node_modules/
+auth_session/
+*.db
+*.db-wal
+*.db-shm
+.env
